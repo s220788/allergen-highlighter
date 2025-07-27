@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="
+  <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     script-src 'self' https://apis.google.com https://accounts.google.com https://www.gstatic.com 'unsafe-inline' 'unsafe-eval' blob:;
     style-src 'self' https://accounts.google.com 'unsafe-inline';
@@ -10,7 +10,7 @@
     frame-src 'self' https://accounts.google.com https://content-docs.googleapis.com;
     font-src 'self' https://fonts.gstatic.com;
     img-src 'self' https://www.gstatic.com data:;
-">
+  ">
   <title>Allergen Highlighter</title>
   <style>
     body {
@@ -123,11 +123,11 @@
   <h2>Allergen Highlighter</h2>
   
   <div id="authSection">
-    <!-- Updated Google Identity Services with popup mode -->
     <div id="g_id_onload"
          data-client_id="937805701155-qfln1a6mgph0rm37hvg00mv4i80aeil6.apps.googleusercontent.com"
          data-context="signin"
          data-ux_mode="popup"
+         data-login_uri="https://s220788.github.io/allergen-highlighter/"
          data-callback="handleCredentialResponse"
          data-auto_prompt="false">
     </div>
@@ -156,6 +156,7 @@
     let docLink = '';
     let isSignedIn = false;
     let gapiInitialized = false;
+    let credentialResponse = null;
 
     // Allergen data
     const allergenMap = {
@@ -193,30 +194,29 @@
     };
 
     function handleCredentialResponse(response) {
+      credentialResponse = response;
       if (response.credential) {
         isSignedIn = true;
         document.getElementById('gsi-button').classList.add('hidden');
         document.getElementById('signoutButton').classList.remove('hidden');
         document.getElementById('authStatus').textContent = 'Signed in';
         
-        // Initialize Google API client with proper OAuth config
-        gapi.load('client:auth2', () => {
+        // Initialize Google API client with token from GIS
+        gapi.load('client', () => {
           gapi.client.init({
-            clientId: CLIENT_ID,
-            scope: SCOPES,
             discoveryDocs: [DISCOVERY_DOC],
-            redirect_uri: REDIRECT_URI
+            scope: SCOPES
           }).then(() => {
-            // Listen for sign-in state changes
-            gapi.auth2.getAuthInstance().isSignedIn.listen(updateButtonState);
+            // Set the access token from the credential response
+            gapi.client.setToken({
+              access_token: response.credential
+            });
             
-            // Handle initial sign-in state
             updateButtonState();
             gapiInitialized = true;
             console.log('Google API initialized');
           }).catch(error => {
             console.error('Error initializing Google API:', error);
-            alert('Failed to initialize Google API. Please ensure:\n1. The Google Docs API is enabled\n2. https://s220788.github.io/allergen-highlighter/ is registered in Authorized JavaScript origins');
           });
         });
       }
@@ -230,13 +230,6 @@
       script.onload = function() {
         console.log('Google Identity Services loaded');
         
-        // Updated to use popup mode consistently
-        google.accounts.id.initialize({
-          client_id: CLIENT_ID,
-          callback: handleCredentialResponse,
-          ux_mode: 'popup' // Changed from 'redirect' to match HTML
-        });
-        
         // Render the Google Sign-In button
         google.accounts.id.renderButton(
           document.getElementById('gsi-button'),
@@ -244,10 +237,9 @@
         );
         
         document.getElementById('signoutButton').onclick = function() {
-          if (gapi.auth2) {
-            const auth2 = gapi.auth2.getAuthInstance();
-            auth2.signOut().then(() => {
-              google.accounts.id.disableAutoSelect();
+          google.accounts.id.disableAutoSelect();
+          if (credentialResponse) {
+            google.accounts.id.revoke(credentialResponse.credential, () => {
               isSignedIn = false;
               gapiInitialized = false;
               document.getElementById('gsi-button').classList.remove('hidden');
@@ -274,66 +266,54 @@
       const timestamp = new Date().toLocaleString();
       const docTitle = `Allergen Report - ${productName || 'Untitled'} - ${timestamp}`;
 
-      return gapi.auth2.getAuthInstance().currentUser.get()
-        .then((user) => {
-          const authResponse = user.getAuthResponse();
-          const accessToken = authResponse.access_token;
-
-          return fetch('https://docs.googleapis.com/v1/documents', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ title: docTitle })
-          })
-          .then(response => response.json())
-          .then(response => {
-            if (response.error) {
-              throw new Error(response.error.message);
-            }
-            googleDocId = response.documentId;
-            docLink = `https://docs.google.com/document/d/${googleDocId}/edit`;
-            
-            const docLinkElement = document.getElementById('docLink');
-            docLinkElement.innerHTML = `<a href="${docLink}" target="_blank">View Google Doc</a>`;
-            docLinkElement.classList.remove('hidden');
-            
-            return googleDocId;
-          });
-        })
-        .catch(error => {
-          console.error("Error creating document:", error);
-          throw error;
-        });
+      return fetch('https://docs.googleapis.com/v1/documents', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${gapi.client.getToken().access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title: docTitle })
+      })
+      .then(response => response.json())
+      .then(response => {
+        if (response.error) {
+          throw new Error(response.error.message);
+        }
+        googleDocId = response.documentId;
+        docLink = `https://docs.google.com/document/d/${googleDocId}/edit`;
+        
+        const docLinkElement = document.getElementById('docLink');
+        docLinkElement.innerHTML = `<a href="${docLink}" target="_blank">View Google Doc</a>`;
+        docLinkElement.classList.remove('hidden');
+        
+        return googleDocId;
+      })
+      .catch(error => {
+        console.error("Error creating document:", error);
+        throw error;
+      });
     }
 
     function appendToGoogleDoc(content) {
-      return gapi.auth2.getAuthInstance().currentUser.get()
-        .then((user) => {
-          const authResponse = user.getAuthResponse();
-          const accessToken = authResponse.access_token;
-
-          return fetch(`https://docs.googleapis.com/v1/documents/${googleDocId}:batchUpdate`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              requests: [{
-                insertText: {
-                  location: { index: 1 },
-                  text: content + '\n\n'
-                }
-              }]
-            })
-          });
+      return fetch(`https://docs.googleapis.com/v1/documents/${googleDocId}:batchUpdate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${gapi.client.getToken().access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requests: [{
+            insertText: {
+              location: { index: 1 },
+              text: content + '\n\n'
+            }
+          }]
         })
-        .catch(error => {
-          console.error("Error appending to document:", error);
-          throw error;
-        });
+      })
+      .catch(error => {
+        console.error("Error appending to document:", error);
+        throw error;
+      });
     }
 
     function highlightAllergens() {

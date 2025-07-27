@@ -67,19 +67,16 @@
       background: #f5f5f5;
       border-radius: 4px;
     }
-    #signinButton, #signoutButton {
+    #gsi-button {
+      margin-bottom: 10px;
+    }
+    #signoutButton {
       padding: 8px 16px;
       margin-right: 10px;
       border: none;
       border-radius: 4px;
       cursor: pointer;
       font-weight: bold;
-    }
-    #signinButton {
-      background-color: #4285F4;
-      color: white;
-    }
-    #signoutButton {
       background-color: #f44336;
       color: white;
     }
@@ -126,11 +123,11 @@
   <h2>Allergen Highlighter</h2>
   
   <div id="authSection">
+    <!-- Updated Google Identity Services with popup mode -->
     <div id="g_id_onload"
          data-client_id="937805701155-qfln1a6mgph0rm37hvg00mv4i80aeil6.apps.googleusercontent.com"
          data-context="signin"
-         data-ux_mode="redirect"
-         data-login_uri="https://s220788.github.io/allergen-highlighter/"
+         data-ux_mode="popup"
          data-callback="handleCredentialResponse"
          data-auto_prompt="false">
     </div>
@@ -179,7 +176,7 @@
     };
 
     const allergenEmojis = {
-      "CELERY": "🌿", 
+      "CELERY": "🌿",
       "CEREALS CONTAINING GLUTEN": "🌾",
       "CRUSTACEANS": "🦐",
       "EGGS": "🥚",
@@ -233,12 +230,11 @@
       script.onload = function() {
         console.log('Google Identity Services loaded');
         
-        // Initialize Google Identity Services
+        // Updated to use popup mode consistently
         google.accounts.id.initialize({
           client_id: CLIENT_ID,
           callback: handleCredentialResponse,
-          login_uri: REDIRECT_URI,
-          ux_mode: 'redirect'
+          ux_mode: 'popup' // Changed from 'redirect' to match HTML
         });
         
         // Render the Google Sign-In button

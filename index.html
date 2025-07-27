@@ -157,6 +157,7 @@
     let docLink = '';
     let isSignedIn = false;
     let tokenClient;
+    let gapiInitialized = false;
 
     // Allergen data
     const allergenMap = {
@@ -211,7 +212,9 @@
       gapi.client.init({
         discoveryDocs: [DISCOVERY_DOC]
       }).then(function() {
+        gapiInitialized = true;
         console.log('Google API client initialized');
+        initTokenClient();
       }).catch(function(error) {
         console.error('Error initializing Google API client:', error);
       });
@@ -223,6 +226,7 @@
         console.log('Consent revoked');
       });
       isSignedIn = false;
+      gapiInitialized = false;
       document.getElementById('authStatus').textContent = 'Not signed in';
       document.getElementById('signoutButton').classList.add('hidden');
       document.querySelector('.g_id_signin').style.display = 'block';
@@ -234,7 +238,7 @@
       const productName = document.getElementById('productName').value.trim();
       const ingredients = document.getElementById('ingredientsInput').value.trim();
       
-      checkBtn.disabled = !(isSignedIn && productName && ingredients);
+      checkBtn.disabled = !(isSignedIn && gapiInitialized && productName && ingredients);
     }
 
     function initTokenClient() {
@@ -243,6 +247,7 @@
         scope: SCOPES,
         callback: (tokenResponse) => {
           if (tokenResponse && tokenResponse.access_token) {
+            // Token received, proceed with API calls
             highlightAllergens();
           }
         },
@@ -291,6 +296,11 @@
     }
 
     function highlightAllergens() {
+      if (!isSignedIn || !gapiInitialized) {
+        tokenClient.requestAccessToken();
+        return;
+      }
+
       const productName = document.getElementById('productName').value;
       if (!productName) {
         alert('Please enter a product name');
@@ -373,7 +383,6 @@
       gapiScript.defer = true;
       gapiScript.onload = function() {
         console.log('Google API client loaded');
-        initTokenClient();
       };
       gapiScript.onerror = function() {
         console.error('Failed to load Google API script');
@@ -386,7 +395,7 @@
 
       // Set up check allergens button
       document.getElementById('checkAllergensBtn').onclick = function() {
-        if (!isSignedIn) {
+        if (!isSignedIn || !gapiInitialized) {
           tokenClient.requestAccessToken();
         } else {
           highlightAllergens();

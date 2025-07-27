@@ -152,8 +152,8 @@
   <div id="docLink" class="hidden"></div>
   <div id="debugLogs"></div>
 
+  <!-- Load Google Identity Services first -->
   <script src="https://accounts.google.com/gsi/client"></script>
-  <script src="https://apis.google.com/js/api.js"></script>
   <script>
     // Configuration
     const CLIENT_ID = '937805701155-qfln1a6mgph0rm37hvg00mv4i80aeil6.apps.googleusercontent.com';
@@ -216,25 +216,63 @@
       debugDiv.scrollTop = debugDiv.scrollHeight;
     }
 
+    // Load and initialize GAPI with proper error handling
+    function loadGAPI() {
+      return new Promise((resolve, reject) => {
+        // Check if already loaded
+        if (window.gapi) {
+          debugLog('GAPI already loaded');
+          resolve();
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.src = 'https://apis.google.com/js/api.js';
+        script.async = true;
+        script.defer = true;
+        script.onload = () => {
+          if (!window.gapi) {
+            reject(new Error('GAPI object not available after loading'));
+            return;
+          }
+          debugLog('Google API script loaded successfully');
+          resolve();
+        };
+        script.onerror = () => {
+          reject(new Error('Failed to load Google API script'));
+        };
+        document.body.appendChild(script);
+      });
+    }
+
     // Initialize Google API client
     async function initializeGapiClient() {
       try {
+        debugLog('Initializing GAPI client...');
+        
+        // First load the GAPI script if needed
+        await loadGAPI();
+
+        // Load the client library
         await new Promise((resolve, reject) => {
           gapi.load('client', {
             callback: resolve,
             onerror: reject,
-            timeout: 10000
+            timeout: 10000 // 10 second timeout
           });
         });
 
+        // Initialize the client
         await gapi.client.init({
-          discoveryDocs: [DISCOVERY_DOC]
+          discoveryDocs: [DISCOVERY_DOC],
+          clientId: CLIENT_ID,
+          scope: SCOPES
         });
 
         gapiInitialized = true;
         debugLog('Google API initialized successfully');
       } catch (error) {
-        debugLog('GAPI init error', error);
+        debugLog('GAPI initialization failed', error);
         throw error;
       }
     }
@@ -442,12 +480,14 @@
 
       // Set up check allergens button
       document.getElementById('checkAllergensBtn').onclick = function() {
-        if (!isSignedIn || !gapiInitialized) {
+        if (!isSignedIn) {
           if (tokenClient) {
             tokenClient.requestAccessToken();
           } else {
-            alert('Please wait while we finish initializing...');
+            alert('Please sign in first');
           }
+        } else if (!gapiInitialized) {
+          alert('Google APIs are still initializing, please wait...');
         } else {
           highlightAllergens();
         }

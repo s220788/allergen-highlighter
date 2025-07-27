@@ -163,7 +163,7 @@
     let docLink = '';
     let isSignedIn = false;
     let tokenClient;
-    let gapiLoaded = false;
+    let gapiInitialized = false;
 
     // Allergen data
     const allergenMap = {
@@ -218,16 +218,21 @@
     // Initialize GAPI client
     function initGAPI() {
       return new Promise((resolve, reject) => {
+        if (window.gapi) {
+          debugLog('GAPI already loaded');
+          resolve();
+          return;
+        }
+
         const script = document.createElement('script');
         script.src = 'https://apis.google.com/js/api.js';
         script.async = true;
         script.defer = true;
         script.onload = () => {
           debugLog('Google API script loaded');
-          gapi.load('client:auth2', {
+          gapi.load('client', {
             callback: () => {
               debugLog('GAPI client loaded');
-              gapiLoaded = true;
               resolve();
             },
             onerror: () => {
@@ -269,7 +274,7 @@
     // Initialize Google API client
     async function initializeGapiClient() {
       try {
-        if (!gapiLoaded) {
+        if (!window.gapi) {
           await initGAPI();
         }
         
@@ -280,6 +285,7 @@
         });
         
         debugLog('Google API initialized successfully');
+        gapiInitialized = true;
         
         // Initialize token client
         tokenClient = google.accounts.oauth2.initTokenClient({
@@ -309,7 +315,7 @@
         debugLog('Consent revoked');
       });
       isSignedIn = false;
-      gapiLoaded = false;
+      gapiInitialized = false;
       document.getElementById('authStatus').textContent = 'Not signed in';
       document.getElementById('signoutButton').classList.add('hidden');
       document.querySelector('.g_id_signin').style.display = 'block';
@@ -328,6 +334,10 @@
     // Create Google Doc
     async function createGoogleDoc() {
       try {
+        if (!gapiInitialized) {
+          throw new Error('Google API not initialized');
+        }
+
         const productName = document.getElementById('productName').value.trim();
         const timestamp = new Date().toLocaleString();
         const docTitle = `Allergen Report - ${productName || 'Untitled'} - ${timestamp}`;
@@ -380,6 +390,10 @@
         if (!isSignedIn) {
           tokenClient.requestAccessToken();
           return;
+        }
+
+        if (!gapiInitialized) {
+          throw new Error('Google API not ready');
         }
 
         const productName = document.getElementById('productName').value;

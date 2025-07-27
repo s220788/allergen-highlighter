@@ -165,6 +165,11 @@
     let isSignedIn = false;
     let tokenClient;
     let gapiInitialized = false;
+    let initializationState = {
+      gapiLoaded: false,
+      gapiInitialized: false,
+      gapiClientInitialized: false
+    };
 
     // Allergen data
     const allergenMap = {
@@ -221,6 +226,7 @@
       return new Promise((resolve, reject) => {
         // Check if already loaded
         if (window.gapi) {
+          initializationState.gapiLoaded = true;
           debugLog('GAPI already loaded');
           resolve();
           return;
@@ -235,6 +241,7 @@
             reject(new Error('GAPI object not available after loading'));
             return;
           }
+          initializationState.gapiLoaded = true;
           debugLog('Google API script loaded successfully');
           resolve();
         };
@@ -256,9 +263,12 @@
         // Load the client library
         await new Promise((resolve, reject) => {
           gapi.load('client', {
-            callback: resolve,
+            callback: () => {
+              initializationState.gapiInitialized = true;
+              resolve();
+            },
             onerror: reject,
-            timeout: 10000 // 10 second timeout
+            timeout: 10000
           });
         });
 
@@ -269,6 +279,7 @@
           scope: SCOPES
         });
 
+        initializationState.gapiClientInitialized = true;
         gapiInitialized = true;
         debugLog('Google API initialized successfully');
       } catch (error) {
@@ -281,6 +292,14 @@
     async function handleCredentialResponse(response) {
       try {
         if (response.credential) {
+          // Reset initialization states
+          initializationState = {
+            gapiLoaded: false,
+            gapiInitialized: false,
+            gapiClientInitialized: false
+          };
+          gapiInitialized = false;
+
           isSignedIn = true;
           document.getElementById('authStatus').textContent = 'Signed in';
           document.getElementById('signoutButton').classList.remove('hidden');
@@ -320,6 +339,11 @@
       });
       isSignedIn = false;
       gapiInitialized = false;
+      initializationState = {
+        gapiLoaded: false,
+        gapiInitialized: false,
+        gapiClientInitialized: false
+      };
       document.getElementById('authStatus').textContent = 'Not signed in';
       document.getElementById('signoutButton').classList.add('hidden');
       document.querySelector('.g_id_signin').style.display = 'block';
@@ -479,17 +503,56 @@
       document.getElementById('signoutButton').onclick = signOut;
 
       // Set up check allergens button
-      document.getElementById('checkAllergensBtn').onclick = function() {
+      document.getElementById('checkAllergensBtn').onclick = async function() {
         if (!isSignedIn) {
           if (tokenClient) {
             tokenClient.requestAccessToken();
           } else {
             alert('Please sign in first');
           }
-        } else if (!gapiInitialized) {
-          alert('Google APIs are still initializing, please wait...');
-        } else {
+          return;
+        }
+
+        // Show loading state
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Initializing...';
+
+        try {
+          // Wait for full initialization
+          while (!initializationState.gapiClientInitialized) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            if (!initializationState.gapiLoaded) {
+              await loadGAPI();
+            }
+            if (!initializationState.gapiInitialized) {
+              await new Promise((resolve, reject) => {
+                gapi.load('client', {
+                  callback: resolve,
+                  onerror: reject,
+                  timeout: 10000
+                });
+              });
+              initializationState.gapiInitialized = true;
+            }
+            if (!initializationState.gapiClientInitialized) {
+              await gapi.client.init({
+                discoveryDocs: [DISCOVERY_DOC],
+                clientId: CLIENT_ID,
+                scope: SCOPES
+              });
+              initializationState.gapiClientInitialized = true;
+              gapiInitialized = true;
+            }
+          }
+
           highlightAllergens();
+        } catch (error) {
+          debugLog('Initialization error', error);
+          alert('Error initializing Google APIs: ' + error.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Check Allergens';
         }
       };
 

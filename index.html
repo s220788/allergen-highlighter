@@ -152,6 +152,7 @@
   <div id="docLink" class="hidden"></div>
   <div id="debugLogs"></div>
 
+  <!-- Load Google APIs in correct order -->
   <script src="https://accounts.google.com/gsi/client"></script>
   <script>
     // Configuration
@@ -215,67 +216,41 @@
       debugDiv.scrollTop = debugDiv.scrollHeight;
     }
 
-    // Initialize GAPI client
-    function initGAPI() {
+    // Load and initialize GAPI
+    function loadGAPI() {
       return new Promise((resolve, reject) => {
-        if (window.gapi) {
-          debugLog('GAPI already loaded');
-          resolve();
-          return;
-        }
-
         const script = document.createElement('script');
         script.src = 'https://apis.google.com/js/api.js';
         script.async = true;
         script.defer = true;
         script.onload = () => {
           debugLog('Google API script loaded');
-          gapi.load('client', {
-            callback: () => {
-              debugLog('GAPI client loaded');
-              resolve();
-            },
-            onerror: () => {
-              const err = new Error('Failed to load GAPI client');
-              debugLog('GAPI load error', err);
-              reject(err);
-            },
-            timeout: 5000
+          if (!window.gapi) {
+            reject(new Error('gapi object not available'));
+            return;
+          }
+          gapi.load('client:auth2', () => {
+            debugLog('GAPI client loaded');
+            resolve();
+          }, (error) => {
+            debugLog('GAPI client load failed', error);
+            reject(error);
           });
         };
         script.onerror = () => {
-          const err = new Error('Failed to load Google API script');
-          debugLog('Script load error', err);
-          reject(err);
+          const error = new Error('Failed to load Google API script');
+          debugLog('Script load error', error);
+          reject(error);
         };
         document.body.appendChild(script);
       });
     }
 
-    // Handle Google sign-in
-    async function handleCredentialResponse(response) {
-      try {
-        if (response.credential) {
-          isSignedIn = true;
-          document.getElementById('authStatus').textContent = 'Signed in';
-          document.getElementById('signoutButton').classList.remove('hidden');
-          document.querySelector('.g_id_signin').style.display = 'none';
-          updateButtonState();
-          
-          debugLog('User signed in, initializing GAPI...');
-          await initializeGapiClient();
-        }
-      } catch (error) {
-        debugLog('Sign-in error', error);
-        alert('Sign-in error: ' + error.message);
-      }
-    }
-
     // Initialize Google API client
     async function initializeGapiClient() {
       try {
-        if (!window.gapi) {
-          await initGAPI();
+        if (!window.gapi || !window.gapi.client) {
+          await loadGAPI();
         }
         
         await gapi.client.init({
@@ -305,6 +280,25 @@
       } catch (error) {
         debugLog('GAPI init error', error);
         alert('API initialization error: ' + error.message);
+      }
+    }
+
+    // Handle Google sign-in
+    async function handleCredentialResponse(response) {
+      try {
+        if (response.credential) {
+          isSignedIn = true;
+          document.getElementById('authStatus').textContent = 'Signed in';
+          document.getElementById('signoutButton').classList.remove('hidden');
+          document.querySelector('.g_id_signin').style.display = 'none';
+          updateButtonState();
+          
+          debugLog('User signed in, initializing GAPI...');
+          await initializeGapiClient();
+        }
+      } catch (error) {
+        debugLog('Sign-in error', error);
+        alert('Sign-in error: ' + error.message);
       }
     }
 
@@ -474,10 +468,24 @@
     window.addEventListener('DOMContentLoaded', function() {
       debugLog('Page loaded, initializing...');
       
-      // Initialize GAPI
-      initGAPI().catch(error => {
-        debugLog('Initialization error', error);
-      });
+      // Load GAPI with retry logic
+      const initGAPIWithRetry = async (attempt = 1) => {
+        try {
+          await loadGAPI();
+          debugLog('GAPI loaded successfully');
+        } catch (error) {
+          if (attempt < 3) {
+            debugLog(`Retry ${attempt} of 3...`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            await initGAPIWithRetry(attempt + 1);
+          } else {
+            debugLog('Failed to load GAPI after 3 attempts', error);
+            alert('Failed to load required Google APIs. Please refresh the page.');
+          }
+        }
+      };
+
+      initGAPIWithRetry();
 
       // Set up sign out button
       document.getElementById('signoutButton').onclick = signOut;

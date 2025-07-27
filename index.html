@@ -114,6 +114,11 @@
     .g_id_signin {
       margin-bottom: 10px;
     }
+    .debug-log {
+      color: #666;
+      font-size: 0.9em;
+      margin-top: 5px;
+    }
   </style>
 </head>
 <body>
@@ -145,10 +150,11 @@
   <h3>Results:</h3>
   <div id="output"></div>
   <div id="docLink" class="hidden"></div>
+  <div id="debugLogs"></div>
 
   <script src="https://accounts.google.com/gsi/client"></script>
   <script>
-    // Configuration with your credentials
+    // Configuration
     const CLIENT_ID = '937805701155-qfln1a6mgph0rm37hvg00mv4i80aeil6.apps.googleusercontent.com';
     const DISCOVERY_DOC = 'https://docs.googleapis.com/$discovery/rest?version=v1';
     const SCOPES = 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file';
@@ -194,37 +200,76 @@
       "SULPHUR DIOXIDE/SULPHITES": "⚪"
     };
 
-    function handleCredentialResponse(response) {
-      if (response.credential) {
-        isSignedIn = true;
-        document.getElementById('authStatus').textContent = 'Signed in';
-        document.getElementById('signoutButton').classList.remove('hidden');
-        document.querySelector('.g_id_signin').style.display = 'none';
-        updateButtonState();
-        
-        // Initialize Google API client
-        initializeGapiClient();
+    // Debug logging
+    function debugLog(message, data = null) {
+      console.log('[DEBUG]', message, data || '');
+      const debugDiv = document.getElementById('debugLogs');
+      debugDiv.innerHTML += `<div class="debug-log">${new Date().toLocaleTimeString()}: ${message}</div>`;
+      debugDiv.scrollTop = debugDiv.scrollHeight;
+    }
+
+    // Handle Google sign-in
+    async function handleCredentialResponse(response) {
+      try {
+        if (response.credential) {
+          isSignedIn = true;
+          document.getElementById('authStatus').textContent = 'Signed in';
+          document.getElementById('signoutButton').classList.remove('hidden');
+          document.querySelector('.g_id_signin').style.display = 'none';
+          updateButtonState();
+          
+          debugLog('User signed in, initializing GAPI...');
+          await initializeGapiClient();
+        }
+      } catch (error) {
+        debugLog('Sign-in error:', error);
+        alert('Sign-in error: ' + error.message);
       }
     }
 
-    function initializeGapiClient() {
-      gapi.load('client', () => {
-        gapi.client.init({
-          discoveryDocs: [DISCOVERY_DOC]
-        }).then(() => {
-          gapiInitialized = true;
-          console.log('Google API client initialized');
-          initTokenClient();
-        }).catch(error => {
-          console.error('Error initializing Google API client:', error);
+    // Initialize Google API client
+    async function initializeGapiClient() {
+      try {
+        await new Promise((resolve) => {
+          gapi.load('client', { callback: resolve, timeout: 5000 });
         });
+        
+        await gapi.client.init({
+          discoveryDocs: [DISCOVERY_DOC]
+        });
+        
+        gapiInitialized = true;
+        debugLog('Google API initialized successfully');
+        initTokenClient();
+      } catch (error) {
+        debugLog('GAPI init error:', error);
+        alert('API initialization error: ' + error.message);
+      }
+    }
+
+    // Initialize token client
+    function initTokenClient() {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: (tokenResponse) => {
+          if (tokenResponse && tokenResponse.access_token) {
+            debugLog('Access token received');
+            highlightAllergens();
+          }
+        },
+        error_callback: (error) => {
+          debugLog('Token error:', error);
+          alert('Authorization error: ' + error.message);
+        }
       });
     }
 
+    // Sign out
     function signOut() {
       google.accounts.id.disableAutoSelect();
       google.accounts.id.revoke(CLIENT_ID, done => {
-        console.log('Consent revoked');
+        debugLog('Consent revoked');
       });
       isSignedIn = false;
       gapiInitialized = false;
@@ -234,6 +279,7 @@
       updateButtonState();
     }
 
+    // Update button state
     function updateButtonState() {
       const checkBtn = document.getElementById('checkAllergensBtn');
       const productName = document.getElementById('productName').value.trim();
@@ -242,135 +288,132 @@
       checkBtn.disabled = !(isSignedIn && productName && ingredients);
     }
 
-    function initTokenClient() {
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: (tokenResponse) => {
-          if (tokenResponse && tokenResponse.access_token) {
-            highlightAllergens();
-          }
-        },
-        error_callback: (error) => {
-          console.error('Google OAuth error:', error);
-          alert('Error during Google sign-in: ' + error.message);
-        }
-      });
-    }
-
-    function createGoogleDoc() {
-      const productName = document.getElementById('productName').value.trim();
-      const timestamp = new Date().toLocaleString();
-      const docTitle = `Allergen Report - ${productName || 'Untitled'} - ${timestamp}`;
-
-      return gapi.client.docs.documents.create({
-        title: docTitle
-      }).then(function(response) {
+    // Create Google Doc
+    async function createGoogleDoc() {
+      try {
+        const productName = document.getElementById('productName').value.trim();
+        const timestamp = new Date().toLocaleString();
+        const docTitle = `Allergen Report - ${productName || 'Untitled'} - ${timestamp}`;
+        
+        debugLog('Creating document...');
+        const response = await gapi.client.docs.documents.create({ title: docTitle });
+        
         googleDocId = response.result.documentId;
         docLink = `https://docs.google.com/document/d/${googleDocId}/edit`;
+        
+        debugLog(`Document created: ${docLink}`);
         
         const docLinkElement = document.getElementById('docLink');
         docLinkElement.innerHTML = `<a href="${docLink}" target="_blank">View Google Doc</a>`;
         docLinkElement.classList.remove('hidden');
         
         return googleDocId;
-      }).catch(function(error) {
-        console.error("Error creating document:", error);
+      } catch (error) {
+        debugLog('Doc creation failed:', error);
         throw error;
-      });
+      }
     }
 
-    function appendToGoogleDoc(content) {
-      return gapi.client.docs.documents.batchUpdate({
-        documentId: googleDocId,
-        requests: [{
-          insertText: {
-            location: { index: 1 },
-            text: content + '\n\n'
-          }
-        }]
-      }).catch(function(error) {
-        console.error("Error appending to document:", error);
-        throw error;
-      });
-    }
-
-    function highlightAllergens() {
-      if (!isSignedIn) {
-        tokenClient.requestAccessToken();
-        return;
-      }
-
-      const productName = document.getElementById('productName').value;
-      if (!productName) {
-        alert('Please enter a product name');
-        return;
-      }
-
-      const input = document.getElementById('ingredientsInput').value;
-      if (!input) {
-        alert('Please enter ingredients');
-        return;
-      }
-
-      let output = input;
-      const foundAllergens = new Set();
-      const matches = [];
-
-      Object.entries(allergenMap).forEach(([allergen, terms]) => {
-        terms.forEach(term => {
-          const regex = new RegExp(`\\b${term}(es|s)?\\b`, 'gi');
-          let match;
-          while ((match = regex.exec(input)) !== null) {
-            matches.push({
-              start: match.index,
-              end: match.index + match[0].length,
-              allergen: allergen,
-              text: match[0]
-            });
-            foundAllergens.add(allergen);
-          }
+    // Append content to Google Doc
+    async function appendToGoogleDoc(content) {
+      try {
+        debugLog('Appending to document...');
+        await gapi.client.docs.documents.batchUpdate({
+          documentId: googleDocId,
+          requests: [{
+            insertText: {
+              location: { index: 1 },
+              text: content + '\n\n'
+            }
+          }]
         });
-      });
-
-      matches.sort((a, b) => b.start - a.start);
-
-      matches.forEach(match => {
-        const emoji = allergenEmojis[match.allergen] || '⚠️';
-        output = output.substring(0, match.start) + 
-                 emoji + 
-                 '<span class="allergen-ingredient">' + 
-                 match.text + 
-                 '</span>' + 
-                 output.substring(match.end);
-      });
-
-      let legend = '';
-      if (foundAllergens.size > 0) {
-        legend = '<div class="allergen-legend"><strong>Allergens present:</strong><br>';
-        legend += Array.from(foundAllergens).sort().map(allergen => {
-          return `${allergenEmojis[allergen]} ${allergen}`;
-        }).join(', ');
-        legend += '</div>';
+        debugLog('Content appended successfully');
+      } catch (error) {
+        debugLog('Append failed:', error);
+        throw error;
       }
+    }
 
-      document.getElementById('output').innerHTML = legend + output;
+    // Main allergen highlighting function
+    async function highlightAllergens() {
+      try {
+        if (!isSignedIn) {
+          tokenClient.requestAccessToken();
+          return;
+        }
 
-      const docContent = `Product: ${productName}\n\n` +
-                         `Ingredients:\n${input}\n\n` +
-                         `Allergens found:\n${Array.from(foundAllergens).sort().join(', ')}\n\n` +
-                         `Highlighted ingredients:\n${output.replace(/<[^>]*>/g, '')}`;
+        const productName = document.getElementById('productName').value;
+        if (!productName) {
+          alert('Please enter a product name');
+          return;
+        }
 
-      const docPromise = googleDocId 
-        ? Promise.resolve(googleDocId)
-        : createGoogleDoc();
+        const input = document.getElementById('ingredientsInput').value;
+        if (!input) {
+          alert('Please enter ingredients');
+          return;
+        }
 
-      docPromise.then(() => {
-        return appendToGoogleDoc(docContent);
-      }).catch(error => {
-        console.error("Error saving to Google Docs", error);
-        alert("Error saving to Google Docs: " + error.message);
-      });
+        let output = input;
+        const foundAllergens = new Set();
+        const matches = [];
+
+        Object.entries(allergenMap).forEach(([allergen, terms]) => {
+          terms.forEach(term => {
+            const regex = new RegExp(`\\b${term}(es|s)?\\b`, 'gi');
+            let match;
+            while ((match = regex.exec(input)) !== null) {
+              matches.push({
+                start: match.index,
+                end: match.index + match[0].length,
+                allergen: allergen,
+                text: match[0]
+              });
+              foundAllergens.add(allergen);
+            }
+          });
+        });
+
+        matches.sort((a, b) => b.start - a.start);
+
+        matches.forEach(match => {
+          const emoji = allergenEmojis[match.allergen] || '⚠️';
+          output = output.substring(0, match.start) + 
+                   emoji + 
+                   '<span class="allergen-ingredient">' + 
+                   match.text + 
+                   '</span>' + 
+                   output.substring(match.end);
+        });
+
+        let legend = '';
+        if (foundAllergens.size > 0) {
+          legend = '<div class="allergen-legend"><strong>Allergens present:</strong><br>';
+          legend += Array.from(foundAllergens).sort().map(allergen => {
+            return `${allergenEmojis[allergen]} ${allergen}`;
+          }).join(', ');
+          legend += '</div>';
+        }
+
+        document.getElementById('output').innerHTML = legend + output;
+
+        const docContent = `Product: ${productName}\n\n` +
+                           `Ingredients:\n${input}\n\n` +
+                           `Allergens found:\n${Array.from(foundAllergens).sort().join(', ')}\n\n` +
+                           `Highlighted ingredients:\n${output.replace(/<[^>]*>/g, '')}`;
+
+        debugLog('Preparing to save to Google Docs...');
+        
+        if (!googleDocId) {
+          await createGoogleDoc();
+        }
+        await appendToGoogleDoc(docContent);
+        
+        debugLog('Allergen check complete!');
+      } catch (error) {
+        debugLog('Highlight error:', error);
+        alert("Error: " + error.message);
+      }
     }
 
     // Initialize when page loads
@@ -381,7 +424,10 @@
       gapiScript.async = true;
       gapiScript.defer = true;
       gapiScript.onload = function() {
-        console.log('Google API client loaded');
+        debugLog('Google API client loaded');
+      };
+      gapiScript.onerror = function() {
+        debugLog('Failed to load Google API script');
       };
       document.body.appendChild(gapiScript);
 
@@ -403,8 +449,11 @@
       
       // Initialize token client
       initTokenClient();
+      
+      debugLog('Page loaded and initialized');
     });
 
+    // Make callback available globally
     window.handleCredentialResponse = handleCredentialResponse;
   </script>
 </body>

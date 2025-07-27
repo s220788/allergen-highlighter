@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
-    script-src 'self' https://apis.google.com https://accounts.google.com https://www.gstatic.com 'unsafe-inline' 'unsafe-eval' blob:;
-    style-src 'self' https://accounts.google.com 'unsafe-inline';
+    script-src 'self' https://apis.google.com https://www.gstatic.com https://accounts.google.com 'unsafe-inline' 'unsafe-eval' blob:;
+    style-src 'self' https://accounts.google.com https://fonts.googleapis.com 'unsafe-inline';
     connect-src 'self' https://docs.googleapis.com https://www.googleapis.com https://accounts.google.com https://content-docs.googleapis.com;
     frame-src 'self' https://accounts.google.com https://content-docs.googleapis.com;
     font-src 'self' https://fonts.gstatic.com;
@@ -224,8 +224,8 @@
           // Show sign-in button now that everything is ready
           document.getElementById('signinButton').classList.remove('hidden');
         }).catch(error => {
-          console.error('Error initializing Google API:', error);
-          alert('Error initializing Google API. Please check console for details.');
+          console.error('Detailed Google API initialization error:', JSON.stringify(error, null, 2));
+          alert('Error initializing Google API: ' + (error.details || error.message || 'Unknown error'));
         });
       });
     }
@@ -255,7 +255,7 @@
         
         return googleDocId;
       }).catch(function(error) {
-        console.error("Error creating document:", error);
+        console.error("Error creating document:", JSON.stringify(error, null, 2));
         throw error;
       });
     }
@@ -270,7 +270,7 @@
           }
         }]
       }).catch(function(error) {
-        console.error("Error appending to document:", error);
+        console.error("Error appending to document:", JSON.stringify(error, null, 2));
         throw error;
       });
     }
@@ -349,8 +349,8 @@
       docPromise.then(() => {
         return appendToGoogleDoc(docContent);
       }).catch(error => {
-        console.error("Error saving to Google Docs", error);
-        alert("Error saving to Google Docs: " + error.message);
+        console.error("Detailed error saving to Google Docs:", JSON.stringify(error, null, 2));
+        alert("Error saving to Google Docs: " + (error.message || 'Unknown error'));
       });
     }
 
@@ -364,6 +364,10 @@
       gapiScript.onload = function() {
         console.log('Google API client loaded');
         initClient();
+      };
+      gapiScript.onerror = function() {
+        console.error('Failed to load Google API script');
+        alert('Failed to load Google API. Please check your internet connection.');
       };
       document.body.appendChild(gapiScript);
 

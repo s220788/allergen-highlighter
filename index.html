@@ -157,7 +157,7 @@
     let docLink = '';
     let isSignedIn = false;
     let tokenClient;
-    let gapiLoaded = false;
+    let gapiInitialized = false;
 
     // Allergen data
     const allergenMap = {
@@ -196,17 +196,14 @@
 
     function handleCredentialResponse(response) {
       if (response.credential) {
-        // User signed in
         isSignedIn = true;
         document.getElementById('authStatus').textContent = 'Signed in';
         document.getElementById('signoutButton').classList.remove('hidden');
         document.querySelector('.g_id_signin').style.display = 'none';
         updateButtonState();
         
-        // Initialize Google API client if gapi is loaded
-        if (gapiLoaded) {
-          initializeGapiClient();
-        }
+        // Initialize Google API client
+        initializeGapiClient();
       }
     }
 
@@ -215,6 +212,7 @@
         gapi.client.init({
           discoveryDocs: [DISCOVERY_DOC]
         }).then(() => {
+          gapiInitialized = true;
           console.log('Google API client initialized');
           initTokenClient();
         }).catch(error => {
@@ -229,6 +227,7 @@
         console.log('Consent revoked');
       });
       isSignedIn = false;
+      gapiInitialized = false;
       document.getElementById('authStatus').textContent = 'Not signed in';
       document.getElementById('signoutButton').classList.add('hidden');
       document.querySelector('.g_id_signin').style.display = 'block';
@@ -297,6 +296,11 @@
     }
 
     function highlightAllergens() {
+      if (!isSignedIn) {
+        tokenClient.requestAccessToken();
+        return;
+      }
+
       const productName = document.getElementById('productName').value;
       if (!productName) {
         alert('Please enter a product name');
@@ -329,7 +333,6 @@
         });
       });
 
-      // Sort matches from end to beginning to avoid offset issues when replacing
       matches.sort((a, b) => b.start - a.start);
 
       matches.forEach(match => {
@@ -378,16 +381,9 @@
       gapiScript.async = true;
       gapiScript.defer = true;
       gapiScript.onload = function() {
-        gapiLoaded = true;
         console.log('Google API client loaded');
-        if (isSignedIn) {
-          initializeGapiClient();
-        }
       };
       document.body.appendChild(gapiScript);
-
-      // Initialize token client
-      initTokenClient();
 
       // Set up sign out button
       document.getElementById('signoutButton').onclick = signOut;
@@ -404,9 +400,11 @@
       // Add event listeners for input changes
       document.getElementById('productName').addEventListener('input', updateButtonState);
       document.getElementById('ingredientsInput').addEventListener('input', updateButtonState);
+      
+      // Initialize token client
+      initTokenClient();
     });
 
-    // Make callback available globally
     window.handleCredentialResponse = handleCredentialResponse;
   </script>
 </body>
